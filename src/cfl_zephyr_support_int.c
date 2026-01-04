@@ -1,4 +1,4 @@
-/* scaffold_project_int.c - one line definition */
+/* cfl_zephyr_support_int.c - one line definition */
 
 /* All Rights Reserved */
 

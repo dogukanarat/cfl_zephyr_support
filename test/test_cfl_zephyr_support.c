@@ -1,10 +1,10 @@
-/* test_scaffold_project.c - Unit tests for scaffold_project */
+/* test_cfl_zephyr_support.c - Unit tests for cfl_zephyr_support */
 
 /* All Rights Reserved */
 
 /* Includes */
 
-#include "scaffold_project/scaffold_project.h"
+#include "cfl_zephyr_support/cfl_zephyr_support.h"
 #include "unity.h"
 #include <string.h>
 
@@ -20,160 +20,160 @@ void tearDown(void)
     /* This is run after EACH test */
 }
 
-/* Test Cases for scaffold_projectGetVersion */
+/* Test Cases for cfl_zephyr_supportGetVersion */
 
 void test_get_version_should_return_version_string(void)
 {
-    const char *version = scaffold_project_get_version();
+    const char *version = cfl_zephyr_support_get_version();
     TEST_ASSERT_NOT_NULL(version);
     TEST_ASSERT_EQUAL_STRING("1.0.0", version);
 }
 
-/* Test Cases for scaffold_projectAdd */
+/* Test Cases for cfl_zephyr_supportAdd */
 
 void test_add_should_return_sum_when_adding_positive_numbers(void)
 {
-    int32_t result = scaffold_project_add(5, 3);
+    int32_t result = cfl_zephyr_support_add(5, 3);
     TEST_ASSERT_EQUAL_INT32(8, result);
 }
 
 void test_add_should_return_sum_when_adding_negative_numbers(void)
 {
-    int32_t result = scaffold_project_add(-5, -3);
+    int32_t result = cfl_zephyr_support_add(-5, -3);
     TEST_ASSERT_EQUAL_INT32(-8, result);
 }
 
 void test_add_should_return_sum_when_adding_mixed_numbers(void)
 {
-    int32_t result = scaffold_project_add(10, -5);
+    int32_t result = cfl_zephyr_support_add(10, -5);
     TEST_ASSERT_EQUAL_INT32(5, result);
 }
 
 void test_add_should_return_zero_when_adding_zeros(void)
 {
-    int32_t result = scaffold_project_add(0, 0);
+    int32_t result = cfl_zephyr_support_add(0, 0);
     TEST_ASSERT_EQUAL_INT32(0, result);
 }
 
-/* Test Cases for scaffold_projectMultiply */
+/* Test Cases for cfl_zephyr_supportMultiply */
 
 void test_multiply_should_return_success_when_multiplying_positive_numbers(void)
 {
     int32_t result;
-    scaffold_project_status_t status = scaffold_project_multiply(5, 3, &result);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_multiply(5, 3, &result);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, status);
     TEST_ASSERT_EQUAL_INT32(15, result);
 }
 
 void test_multiply_should_return_success_when_multiplying_by_zero(void)
 {
     int32_t result;
-    scaffold_project_status_t status = scaffold_project_multiply(5, 0, &result);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_multiply(5, 0, &result);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, status);
     TEST_ASSERT_EQUAL_INT32(0, result);
 }
 
 void test_multiply_should_return_error_null_when_result_pointer_is_null(void)
 {
-    scaffold_project_status_t status = scaffold_project_multiply(5, 3, NULL);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_NULL, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_multiply(5, 3, NULL);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_NULL, status);
 }
 
-/* Test Cases for scaffold_projectFoo */
+/* Test Cases for cfl_zephyr_supportFoo */
 
 void test_foo_should_return_success_when_processing_valid_input(void)
 {
     char output[100];
-    scaffold_project_status_t status = scaffold_project_foo("test", output, sizeof(output));
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_foo("test", output, sizeof(output));
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, status);
     TEST_ASSERT_EQUAL_STRING("Processed: test", output);
 }
 
 void test_foo_should_return_error_null_when_input_is_null(void)
 {
     char output[100];
-    scaffold_project_status_t status = scaffold_project_foo(NULL, output, sizeof(output));
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_NULL, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_foo(NULL, output, sizeof(output));
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_NULL, status);
 }
 
 void test_foo_should_return_error_null_when_output_is_null(void)
 {
-    scaffold_project_status_t status = scaffold_project_foo("test", NULL, 100);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_NULL, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_foo("test", NULL, 100);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_NULL, status);
 }
 
 void test_foo_should_return_error_invalid_when_output_size_is_zero(void)
 {
     char output[100];
-    scaffold_project_status_t status = scaffold_project_foo("test", output, 0);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_INVALID, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_foo("test", output, 0);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_INVALID, status);
 }
 
 void test_foo_should_return_error_invalid_when_buffer_too_small(void)
 {
     char output[5];
-    scaffold_project_status_t status = scaffold_project_foo("test", output, sizeof(output));
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_INVALID, status);
+    cfl_zephyr_support_status_t status = cfl_zephyr_support_foo("test", output, sizeof(output));
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_INVALID, status);
 }
 
-/* Test Cases for scaffold_projectBar */
+/* Test Cases for cfl_zephyr_supportBar */
 
 void test_bar_should_return_true_when_value_is_in_range(void)
 {
-    TEST_ASSERT_TRUE(scaffold_project_bar(50));
-    TEST_ASSERT_TRUE(scaffold_project_bar(0));
-    TEST_ASSERT_TRUE(scaffold_project_bar(100));
+    TEST_ASSERT_TRUE(cfl_zephyr_support_bar(50));
+    TEST_ASSERT_TRUE(cfl_zephyr_support_bar(0));
+    TEST_ASSERT_TRUE(cfl_zephyr_support_bar(100));
 }
 
 void test_bar_should_return_false_when_value_is_out_of_range(void)
 {
-    TEST_ASSERT_FALSE(scaffold_project_bar(-1));
-    TEST_ASSERT_FALSE(scaffold_project_bar(101));
-    TEST_ASSERT_FALSE(scaffold_project_bar(-100));
-    TEST_ASSERT_FALSE(scaffold_project_bar(200));
+    TEST_ASSERT_FALSE(cfl_zephyr_support_bar(-1));
+    TEST_ASSERT_FALSE(cfl_zephyr_support_bar(101));
+    TEST_ASSERT_FALSE(cfl_zephyr_support_bar(-100));
+    TEST_ASSERT_FALSE(cfl_zephyr_support_bar(200));
 }
 
-/* Test Cases for scaffold_projectFactorial */
+/* Test Cases for cfl_zephyr_supportFactorial */
 
 void test_factorial_should_return_correct_value_when_input_is_zero(void)
 {
-    scaffold_project_result_t result = scaffold_project_factorial(0);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, result.status);
+    cfl_zephyr_support_result_t result = cfl_zephyr_support_factorial(0);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, result.status);
     TEST_ASSERT_EQUAL_INT32(1, result.value);
 }
 
 void test_factorial_should_return_correct_value_when_input_is_one(void)
 {
-    scaffold_project_result_t result = scaffold_project_factorial(1);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, result.status);
+    cfl_zephyr_support_result_t result = cfl_zephyr_support_factorial(1);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, result.status);
     TEST_ASSERT_EQUAL_INT32(1, result.value);
 }
 
 void test_factorial_should_return_correct_value_when_input_is_five(void)
 {
-    scaffold_project_result_t result = scaffold_project_factorial(5);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, result.status);
+    cfl_zephyr_support_result_t result = cfl_zephyr_support_factorial(5);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, result.status);
     TEST_ASSERT_EQUAL_INT32(120, result.value);
 }
 
 void test_factorial_should_return_correct_value_when_input_is_ten(void)
 {
-    scaffold_project_result_t result = scaffold_project_factorial(10);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_SUCCESS, result.status);
+    cfl_zephyr_support_result_t result = cfl_zephyr_support_factorial(10);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_SUCCESS, result.status);
     TEST_ASSERT_EQUAL_INT32(3628800, result.value);
 }
 
 void test_factorial_should_return_error_invalid_when_input_is_negative(void)
 {
-    scaffold_project_result_t result = scaffold_project_factorial(-1);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_INVALID, result.status);
+    cfl_zephyr_support_result_t result = cfl_zephyr_support_factorial(-1);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_INVALID, result.status);
     TEST_ASSERT_EQUAL_INT32(0, result.value);
 }
 
 void test_factorial_should_return_error_invalid_when_input_is_too_large(void)
 {
-    scaffold_project_result_t result = scaffold_project_factorial(13);
-    TEST_ASSERT_EQUAL(SCAFFOLD_PROJECT_ERROR_INVALID, result.status);
+    cfl_zephyr_support_result_t result = cfl_zephyr_support_factorial(13);
+    TEST_ASSERT_EQUAL(CFL_ZEPHYR_SUPPORT_ERROR_INVALID, result.status);
     TEST_ASSERT_EQUAL_INT32(0, result.value);
 }
 

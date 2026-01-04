@@ -80,7 +80,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: scaffold_project-${{ matrix.compiler }}-${{ matrix.library_type }}
+          name: cfl_zephyr_support-${{ matrix.compiler }}-${{ matrix.library_type }}
           path: |
-            build/scaffoldproject_project.*
-            build/test/test_scaffold_project
+            build/cflzephyrsupport_project.*
+            build/test/test_cfl_zephyr_support

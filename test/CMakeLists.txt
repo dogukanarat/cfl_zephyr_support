@@ -111,22 +111,22 @@ endif()
 # Test Executable Definition
 # ==============================================================================
 # Create test executable with all test source files
-add_executable(TestScaffoldProject)
+add_executable(TestCflZephyrSupport)
 
 # Add test source files
-target_sources(TestScaffoldProject
+target_sources(TestCflZephyrSupport
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/test_scaffold_project.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/test_cfl_zephyr_support.c
 )
 
 # ==============================================================================
 # Test Dependencies and Libraries
 # ==============================================================================
 # Link the test executable against the library under test and Unity
-target_link_libraries(TestScaffoldProject
+target_link_libraries(TestCflZephyrSupport
     PRIVATE
         # The library we're testing (using namespace alias)
-        ScaffoldProject::ScaffoldProject
+        CflZephyrSupport::CflZephyrSupport
 
         # Unity test framework
         unity
@@ -134,7 +134,7 @@ target_link_libraries(TestScaffoldProject
 
 # Include Unity headers if we downloaded it via FetchContent
 if(NOT UNITY_FOUND AND NOT Unity_FOUND)
-    target_include_directories(TestScaffoldProject
+    target_include_directories(TestCflZephyrSupport
         PRIVATE
             ${unity_SOURCE_DIR}/src
     )
@@ -145,12 +145,12 @@ endif()
 # ==============================================================================
 # Register the test executable with CTest
 add_test(
-    NAME scaffold_project_unit_tests
-    COMMAND TestScaffoldProject
+    NAME cfl_zephyr_support_unit_tests
+    COMMAND TestCflZephyrSupport
 )
 
 # Set test properties
-set_tests_properties(scaffold_project_unit_tests
+set_tests_properties(cfl_zephyr_support_unit_tests
     PROPERTIES
         # Maximum time allowed for test execution (seconds)
         TIMEOUT 30
@@ -159,7 +159,7 @@ set_tests_properties(scaffold_project_unit_tests
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 
         # Labels for organizing tests
-        LABELS "unit;scaffold_project"
+        LABELS "unit;cfl_zephyr_support"
 )
 
 # ==============================================================================

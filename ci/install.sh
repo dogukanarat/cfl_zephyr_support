@@ -195,8 +195,8 @@ print_success "Installation completed successfully!"
 echo ""
 print_info "Installation locations:"
 print_info "  - Library: $INSTALL_PREFIX/lib/"
-print_info "  - Headers: $INSTALL_PREFIX/include/scaffold_project/"
-print_info "  - CMake config: $INSTALL_PREFIX/lib/cmake/scaffold_project/"
+print_info "  - Headers: $INSTALL_PREFIX/include/cfl_zephyr_support/"
+print_info "  - CMake config: $INSTALL_PREFIX/lib/cmake/cfl_zephyr_support/"
 echo ""
 
 # Add usage instructions
@@ -212,6 +212,6 @@ elif [ "$INSTALL_PREFIX" != "/usr/local" ] && [ "$INSTALL_PREFIX" != "/usr" ]; t
 fi
 
 print_info "To use in your CMakeLists.txt:"
-echo "  find_package(scaffold_project REQUIRED)"
-echo "  target_link_libraries(your_target PRIVATE scaffold_project::scaffold_project)"
+echo "  find_package(cfl_zephyr_support REQUIRED)"
+echo "  target_link_libraries(your_target PRIVATE cfl_zephyr_support::cfl_zephyr_support)"
 echo ""
