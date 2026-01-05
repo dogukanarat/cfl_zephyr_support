@@ -1,0 +1,23 @@
+menuconfig CFL_SUPPORT
+    bool "Custom messaging protocol"
+    help
+        Enable YourCo ctrl freak lite
+
+    config CFL_SUPPORT_DANP_SERVICE_PORT
+        int "DANP CFL service port"
+        default 22
+        help
+            Set the port number for the DANP CFL service.
+
+if CFL_SUPPORT
+    config CFL_LOG_LEVEL
+        int "CFL log level"
+        default 2
+        help
+            Set the log level for the DANP module:
+            0: Off
+            1: Error
+            2: Warning
+            3: Info
+            4: Debug
+endif # CFL_SUPPORT
