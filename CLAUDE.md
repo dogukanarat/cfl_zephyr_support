@@ -157,6 +157,14 @@ extern "C" {
   - Auto-downloads Unity v2.6.0 via CMake FetchContent
   - Test naming: `test_<function>_should_<behavior>_when_<condition>`
 
+- **example/** - Example applications demonstrating library usage
+  - `example.c` - Command-line application showcasing all library functions
+  - Uses getopt for argument parsing and POSIX system calls
+  - Demonstrates signal handling, error handling, and verbose logging
+  - Uses only standard POSIX libraries (stdio, stdlib, string, unistd)
+  - Easy to modify and adapt for different use cases
+  - See `example/README.md` for customization guide
+
 - **cmake/** - CMake modules
   - `cfl_zephyr_supportConfig.cmake.in` - Package config template (enables find_package())
   - `FindUnity.cmake` - Unity framework finder
@@ -351,6 +359,7 @@ The `.github/workflows/` directory contains automated CI/CD workflows:
 Template users receive:
 - Complete CMake build system with installation support
 - Unity test framework integration
+- Example CLI application demonstrating library usage (POSIX-only, easily customizable)
 - Code formatting enforcement (.clang-format, .editorconfig, .clang-tidy)
 - GitHub Actions CI/CD workflows (build matrix, format check, static analysis)
 - CI automation scripts (debug, release, install)
@@ -369,4 +378,5 @@ After running migration.sh:
 4. Update CMakeLists.txt project description
 5. Implement actual library functionality
 6. Add tests for their implementation
-7. Update README with their library's purpose
+7. Update example applications to match their actual API
+8. Update README with their library's purpose

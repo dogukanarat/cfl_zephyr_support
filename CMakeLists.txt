@@ -16,6 +16,9 @@ project(CflZephyrSupport
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
+# Set custom module path for additional CMake modules
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/")
+
 # Export compile commands for IDE integration (clangd, ccls, etc.)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands" FORCE)
 

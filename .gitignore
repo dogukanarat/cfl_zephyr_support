@@ -12,9 +12,6 @@ cmake_install.cmake
 install_manifest.txt
 CTestTestfile.cmake
 compile_commands.json
-*.cmake
-!CMakeLists.txt
-!cmake/*.cmake.in
 
 # Build artifacts
 *.a
