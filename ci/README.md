@@ -169,11 +169,11 @@ cmake_minimum_required(VERSION 3.14)
 project(MyProject)
 
 # Find the installed library
-find_package(cfl_zephyr_support REQUIRED)
+find_package(CflZephyrSupport REQUIRED)
 
 # Link your executable against it
 add_executable(myapp main.c)
-target_link_libraries(myapp PRIVATE cfl_zephyr_support::cfl_zephyr_support)
+target_link_libraries(myapp PRIVATE CflZephyrSupport::CflZephyrSupport)
 ```
 
 If installed to a custom prefix, set `CMAKE_PREFIX_PATH`:

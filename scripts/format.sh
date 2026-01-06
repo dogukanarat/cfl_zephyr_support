@@ -5,11 +5,12 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "Formatting source and header files..."
 
 # Format all .c and .h files
-find "$SCRIPT_DIR" -type f \( -name "*.c" -o -name "*.h" \) \
+find "$PROJECT_ROOT" -type f \( -name "*.c" -o -name "*.h" \) \
     -not -path "*/build/*" \
     -not -path "*/.git/*" \
     -exec clang-format -i {} \;

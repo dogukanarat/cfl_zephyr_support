@@ -1,6 +1,7 @@
 # Example Applications
 
-This directory contains example applications that demonstrate how to use the scaffold_project library with proper POSIX-compliant CLI design.
+This directory contains example applications that demonstrate how to use the scaffold_project
+library in both POSIX and embedded-safe contexts.
 
 ## Building Examples
 
@@ -12,9 +13,16 @@ cmake -DBUILD_EXAMPLES=ON ..
 make
 ```
 
-## Running the CLI Example
+## Running the Examples
 
-After building, run the example from the build directory:
+Two example targets are provided:
+
+- `ScaffoldProjectExample` (POSIX CLI): Built only on UNIX-like systems (excluding Zephyr)
+- `ScaffoldProjectEmbeddedExample` (embedded-safe): Always built and avoids POSIX APIs
+
+### POSIX CLI Example
+
+After building on a UNIX-like system, run the example from the build directory:
 
 ```bash
 ./ScaffoldProjectExample <command> [arguments]
@@ -61,9 +69,18 @@ Display usage information:
 ./ScaffoldProjectExample -h
 ```
 
+### Embedded-Safe Example
+
+This example is intended for OSAL/RTOS/bare-metal targets and avoids POSIX-only headers and
+system calls. It just exercises the library APIs in a minimal `main`:
+
+```bash
+./ScaffoldProjectEmbeddedExample
+```
+
 ## Understanding the Example Code
 
-The example application (`example.c`) demonstrates professional CLI application design using POSIX standards:
+The POSIX CLI example (`example.c`) demonstrates professional CLI application design using POSIX standards:
 
 ### Code Structure
 

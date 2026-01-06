@@ -3,16 +3,16 @@
 # ==============================================================================
 # scaffold_project CMake Package Configuration File
 # ==============================================================================
-# This file is used by find_package(scaffold_project) to locate and configure
-# the scaffold_project library for use in other CMake projects.
+# This file is used by find_package(ScaffoldProject) to locate and configure
+# the ScaffoldProject library for use in other CMake projects.
 
 # ==============================================================================
 # Package Version Information
 # ==============================================================================
-set(SCAFFOLD_PROJECT_VERSION "@PROJECT_VERSION@")
-set(SCAFFOLD_PROJECT_VERSION_MAJOR "@PROJECT_VERSION_MAJOR@")
-set(SCAFFOLD_PROJECT_VERSION_MINOR "@PROJECT_VERSION_MINOR@")
-set(SCAFFOLD_PROJECT_VERSION_PATCH "@PROJECT_VERSION_PATCH@")
+set(ScaffoldProject_VERSION "@PROJECT_VERSION@")
+set(ScaffoldProject_VERSION_MAJOR "@PROJECT_VERSION_MAJOR@")
+set(ScaffoldProject_VERSION_MINOR "@PROJECT_VERSION_MINOR@")
+set(ScaffoldProject_VERSION_PATCH "@PROJECT_VERSION_PATCH@")
 
 # ==============================================================================
 # Dependencies
@@ -34,13 +34,13 @@ include(CMakeFindDependencyMacro)
 # Component Support
 # ==============================================================================
 # Supported components for this package
-set(_scaffold_project_supported_components Runtime Development)
+set(_ScaffoldProject_supported_components Runtime Development)
 
 # Validate requested components
-foreach(_comp ${scaffold_project_FIND_COMPONENTS})
-    if(NOT _comp IN_LIST _scaffold_project_supported_components)
-        set(scaffold_project_FOUND False)
-        set(scaffold_project_NOT_FOUND_MESSAGE "Unsupported component: ${_comp}")
+foreach(_comp ${ScaffoldProject_FIND_COMPONENTS})
+    if(NOT _comp IN_LIST _ScaffoldProject_supported_components)
+        set(ScaffoldProject_FOUND False)
+        set(ScaffoldProject_NOT_FOUND_MESSAGE "Unsupported component: ${_comp}")
     endif()
 endforeach()
 
@@ -48,30 +48,30 @@ endforeach()
 # Import Targets
 # ==============================================================================
 # Include the targets file generated during installation
-# This file defines the scaffold_project::scaffold_project target
-if(NOT TARGET scaffold_project::scaffold_project)
-    include("${CMAKE_CURRENT_LIST_DIR}/scaffold_projectTargets.cmake")
+# This file defines the ScaffoldProject::ScaffoldProject target
+if(NOT TARGET ScaffoldProject::ScaffoldProject)
+    include("${CMAKE_CURRENT_LIST_DIR}/ScaffoldProjectTargets.cmake")
 endif()
 
 # Verify that the main library target was successfully imported
-if(NOT TARGET scaffold_project::scaffold_project)
-    set(scaffold_project_FOUND False)
-    set(scaffold_project_NOT_FOUND_MESSAGE "Target scaffold_project::scaffold_project not found")
+if(NOT TARGET ScaffoldProject::ScaffoldProject)
+    set(ScaffoldProject_FOUND False)
+    set(ScaffoldProject_NOT_FOUND_MESSAGE "Target ScaffoldProject::ScaffoldProject not found")
 endif()
 
 # ==============================================================================
 # Package Variables
 # ==============================================================================
 # Set convenience variables for downstream projects
-set(SCAFFOLD_PROJECT_LIBRARIES scaffold_project::scaffold_project)
-set(SCAFFOLD_PROJECT_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+set(ScaffoldProject_LIBRARIES ScaffoldProject::ScaffoldProject)
+set(ScaffoldProject_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 
 # Legacy variables for compatibility (not recommended for new projects)
-set(scaffold_project_LIBRARIES ${SCAFFOLD_PROJECT_LIBRARIES})
-set(scaffold_project_INCLUDE_DIRS ${SCAFFOLD_PROJECT_INCLUDE_DIRS})
+set(scaffold_project_LIBRARIES ${ScaffoldProject_LIBRARIES})
+set(scaffold_project_INCLUDE_DIRS ${ScaffoldProject_INCLUDE_DIRS})
 
 # ==============================================================================
 # Finalization
 # ==============================================================================
 # Validate that all required components are available
-check_required_components(scaffold_project)
+check_required_components(ScaffoldProject)
