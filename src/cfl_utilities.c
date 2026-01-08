@@ -115,7 +115,8 @@ int32_t tmtc_transaction(
         rqst_pkt = danp_buffer_get();
         if (rqst_pkt == NULL)
         {
-            return -ENOMEM;
+            ret = -ENOMEM;
+            break;
         }
 
         rqst_msg = (cfl_message_t *)rqst_pkt->payload;
@@ -146,37 +147,47 @@ int32_t tmtc_transaction(
 
         if (received_msg->flags & CFL_F_NACK)
         {
-            LOG_ERR("Received error status for request ID: %d", received_msg->id);
+            LOG_ERR("Received NACK for request ID: %d", received_msg->id);
             status_msg = received_msg;
+            ret = -5;
+            break;
         }
         else if (received_msg->flags & CFL_F_ACK)
         {
-            LOG_INF("Received success status for request ID: %d", received_msg->id);
+            LOG_INF("Received ACK for request ID: %d", received_msg->id);
             status_msg = received_msg;
+            ret = 0;
+            break;
         }
         else if (received_msg->flags & CFL_F_RPLY)
         {
             LOG_INF("Received reply for request ID: %d", received_msg->id);
             rply_msg = received_msg;
-            break;
         }
         else
         {
-            LOG_ERR("Unknown status message flag");
+            LOG_ERR("Unknown message flag");
             ret = -3;
             break;
         }
 
-        if (NULL == rply_msg && (reply != NULL && reply_size != 0))
+        if (rply_msg == NULL)
         {
-            LOG_DBG("No reply expected but no reply message received");
+            LOG_ERR("Reply message is NULL");
             ret = -4;
             break;
         }
-        
+
+        if (reply == NULL || reply_size == 0)
+        {
+            ret = rply_msg->length;
+            break;
+        }
+
         if (rply_msg->length > reply_size)
         {
-            ret = -3;
+            LOG_ERR("Reply data exceeds buffer size");
+            ret = -6;
             break;
         }
 
@@ -184,6 +195,11 @@ int32_t tmtc_transaction(
         ret = rply_msg->length;
 
         break;
+    }
+
+    if (received_pkt != NULL)
+    {
+        danp_buffer_free(received_pkt);
     }
 
     return ret;

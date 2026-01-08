@@ -22,9 +22,6 @@
 
 /* Private Definitions */
 
-#define CFL_DANP_RX_BUF_SIZE (CFL_HEADER_SIZE + CFL_MAX_PAYLOAD_SIZE)
-#define CFL_DANP_TX_BUF_SIZE (CFL_HEADER_SIZE + CFL_MAX_PAYLOAD_SIZE)
-
 LOG_MODULE_REGISTER(cfl_service, CONFIG_CFL_LOG_LEVEL);
 
 /* Private Types */
@@ -32,7 +29,7 @@ LOG_MODULE_REGISTER(cfl_service, CONFIG_CFL_LOG_LEVEL);
 typedef struct cfl_service_danp_ctx_s
 {
     bool initialized;
-    bool running;
+    volatile bool running;
     uint16_t local_port;
     danp_socket_t *socket;
     osal_thread_handle_t rx_task_handle;
@@ -40,7 +37,7 @@ typedef struct cfl_service_danp_ctx_s
 
 /* Private Variables */
 
-static cfl_service_danp_ctx_t contex;
+static cfl_service_danp_ctx_t context;
 
 /* Public Functions */
 
@@ -163,6 +160,13 @@ static int32_t cfl_process_message(
             }
             else
             {
+                if (rply.len > CFL_MAX_PAYLOAD_SIZE)
+                {
+                    LOG_ERR("Reply data exceeds max payload size");
+                    ret = CFL_ERR_NO_RESOURCE;
+                    break;
+                }
+
                 *rply_pkt = danp_buffer_get();
                 if (*rply_pkt == NULL)
                 {
@@ -207,14 +211,12 @@ static int32_t cfl_process_message(
             rply.len = 0;
             rply.incomplete = false;
 
-            ret = handler->handler(&rqst, &rply);
+            ret = tmtc_run_handler(handler, &rqst, &rply);
 
-            /* Push messages do not expect a reply, so free any allocated reply data */
-
+            /* Push messages do not expect a reply */
             if (NULL != rply.data)
             {
-                LOG_DBG("Freeing allocated reply data for push message");
-                danp_buffer_free(rply.data);
+                LOG_WRN("Handler returned unexpected reply data for push message");
             }
         }
         else
@@ -274,7 +276,7 @@ static void cfl_danp_rx_task(void *arg)
     }
 
     LOG_DBG("RX task exiting");
-    osal_thread_delete(contex.rx_task_handle);
+    osal_thread_delete(context.rx_task_handle);
 }
 
 int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
@@ -298,19 +300,19 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
             break;
         }
 
-        if (contex.initialized)
+        if (context.initialized)
         {
             LOG_ERR("Service already initialized");
             ret = -EALREADY;
             break;
         }
 
-        memset(&contex, 0, sizeof(contex));
-        contex.local_port = config->port_id;
+        memset(&context, 0, sizeof(context));
+        context.local_port = config->port_id;
 
         LOG_DBG("Creating socket");
-        contex.socket = danp_socket(DANP_TYPE_DGRAM);
-        if (contex.socket == NULL)
+        context.socket = danp_socket(DANP_TYPE_DGRAM);
+        if (context.socket == NULL)
         {
             LOG_ERR("Failed to create socket");
             ret = -ENOMEM;
@@ -318,40 +320,40 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         }
         is_socket_created = true;
 
-        LOG_DBG("Binding socket to port: %d", contex.local_port);
-        ret = danp_bind(contex.socket, contex.local_port);
+        LOG_DBG("Binding socket to port: %d", context.local_port);
+        ret = danp_bind(context.socket, context.local_port);
         if (ret < 0)
         {
             LOG_ERR("Failed to bind socket");
             ret = -EADDRNOTAVAIL;
             break;
         }
-        contex.running = true;
+        context.running = true;
 
         LOG_DBG("Creating RX task");
-        contex.rx_task_handle = osal_thread_create(cfl_danp_rx_task, &contex, &task_attr);
-        if (contex.rx_task_handle == NULL)
+        context.rx_task_handle = osal_thread_create(cfl_danp_rx_task, &context, &task_attr);
+        if (context.rx_task_handle == NULL)
         {
             LOG_ERR("Failed to create RX task");
             ret = -ENOMEM;
             break;
         }
 
-        contex.initialized = true;
+        context.initialized = true;
         break;
     }
 
     if (0 != ret)
     {
-        if (is_socket_created && contex.socket != NULL)
+        if (is_socket_created && context.socket != NULL)
         {
             LOG_DBG("Closing socket due to initialization failure");
-            danp_close(contex.socket);
-            contex.socket = NULL;
+            danp_close(context.socket);
+            context.socket = NULL;
         }
 
-        contex.initialized = false;
-        contex.running = false;
+        context.initialized = false;
+        context.running = false;
     }
 
     LOG_DBG("Initialization completed with result: %d", ret);
@@ -366,7 +368,7 @@ int32_t cfl_service_danp_deinit(void)
     {
         LOG_DBG("Deinitializing CFL service over DANP");
 
-        if (!contex.initialized)
+        if (!context.initialized)
         {
             LOG_ERR("Service not initialized");
             ret = -EINVAL;
@@ -374,20 +376,155 @@ int32_t cfl_service_danp_deinit(void)
         }
 
         LOG_DBG("Signaling RX task to stop");
-        contex.running = false;
+        context.running = false;
         osal_delay_ms(CFL_DANP_RX_TIMEOUT_MS * 2);
 
-        if (contex.socket != NULL)
+        if (context.socket != NULL)
         {
             LOG_DBG("Closing socket");
-            danp_close(contex.socket);
-            contex.socket = NULL;
+            danp_close(context.socket);
+            context.socket = NULL;
         }
 
-        memset(&contex, 0, sizeof(contex));
+        memset(&context, 0, sizeof(context));
         break;
     }
 
     LOG_DBG("Deinitialization completed with result: %d", ret);
+    return ret;
+}
+
+int32_t cfl_service_danp_unregister_handler(uint16_t id)
+{
+    (void)id;
+    /* Handler registration is managed by the tmtc subsystem */
+    LOG_WRN("Handler unregistration not supported through this interface");
+    return -ENOTSUP;
+}
+
+int32_t cfl_service_danp_send_request(
+    uint16_t dst_node,
+    uint16_t dst_port,
+    uint16_t id,
+    const uint8_t *payload,
+    uint16_t payload_len,
+    uint16_t *seq_out)
+{
+    int32_t ret = CFL_OK;
+    danp_packet_t *pkt = NULL;
+    cfl_message_t *msg = NULL;
+    int32_t sent_len = 0;
+
+    (void)seq_out; /* Sequence number tracking not implemented */
+
+    for (;;)
+    {
+        if (!context.initialized)
+        {
+            LOG_ERR("Service not initialized");
+            ret = CFL_ERR_NOT_INIT;
+            break;
+        }
+
+        if (payload_len > 0 && payload == NULL)
+        {
+            LOG_ERR("Payload is NULL but length is non-zero");
+            ret = CFL_ERR_NULL;
+            break;
+        }
+
+        pkt = danp_buffer_get();
+        if (pkt == NULL)
+        {
+            LOG_ERR("Failed to allocate packet buffer");
+            ret = CFL_ERR_NO_RESOURCE;
+            break;
+        }
+
+        msg = (cfl_message_t *)pkt->payload;
+        cfl_message_init(msg, id, CFL_F_RQST);
+
+        if (payload_len > 0)
+        {
+            memcpy(msg->data, payload, payload_len);
+        }
+        cfl_message_set_length(msg, payload_len);
+        cfl_message_compute_crc(msg);
+        pkt->length = CFL_HEADER_SIZE + payload_len;
+
+        sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
+        if (sent_len < 0)
+        {
+            LOG_ERR("Failed to send request packet");
+            ret = CFL_ERR_TRANSPORT;
+            break;
+        }
+
+        LOG_DBG("Sent request to node %d port %d, id %d", dst_node, dst_port, id);
+        break;
+    }
+
+    return ret;
+}
+
+int32_t cfl_service_danp_send_push(
+    uint16_t dst_node,
+    uint16_t dst_port,
+    uint16_t id,
+    const uint8_t *payload,
+    uint16_t payload_len)
+{
+    int32_t ret = CFL_OK;
+    danp_packet_t *pkt = NULL;
+    cfl_message_t *msg = NULL;
+    int32_t sent_len = 0;
+
+    for (;;)
+    {
+        if (!context.initialized)
+        {
+            LOG_ERR("Service not initialized");
+            ret = CFL_ERR_NOT_INIT;
+            break;
+        }
+
+        if (payload_len > 0 && payload == NULL)
+        {
+            LOG_ERR("Payload is NULL but length is non-zero");
+            ret = CFL_ERR_NULL;
+            break;
+        }
+
+        pkt = danp_buffer_get();
+        if (pkt == NULL)
+        {
+            LOG_ERR("Failed to allocate packet buffer");
+            ret = CFL_ERR_NO_RESOURCE;
+            break;
+        }
+
+        msg = (cfl_message_t *)pkt->payload;
+        cfl_message_init(msg, id, CFL_F_PUSH);
+
+        if (payload_len > 0)
+        {
+            memcpy(msg->data, payload, payload_len);
+        }
+        cfl_message_set_length(msg, payload_len);
+        cfl_message_compute_crc(msg);
+        pkt->length = CFL_HEADER_SIZE + payload_len;
+
+        sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
+        if (sent_len < 0)
+        {
+            LOG_ERR("Failed to send push packet");
+            ret = CFL_ERR_TRANSPORT;
+            break;
+        }
+
+        LOG_DBG("Sent push to node %d port %d, id %d", dst_node, dst_port, id);
+        break;
+    }
+
     return ret;
 }
