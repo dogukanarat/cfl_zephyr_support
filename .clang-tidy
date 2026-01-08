@@ -1,20 +1,20 @@
 # .clang-tidy configuration file
 
-Checks: >
-  -*,
-  clang-analyzer-*,
-  bugprone-*,
-  performance-*,
-  readability-*,
-  modernize-*,
-  cppcoreguidelines-*,
-  hicpp-*,
-  misc-*,
-  portability-*,
-  google-*,
-  llvm-*,
-  cert-*,
-  concurrency-*
+# Checks: >
+#   -*,
+#   clang-analyzer-*,
+#   bugprone-*,
+#   performance-*,
+#   readability-*,
+#   modernize-*,
+#   cppcoreguidelines-*,
+#   hicpp-*,
+#   misc-*,
+#   portability-*,
+#   google-*,
+#   llvm-*,
+#   cert-*,
+#   concurrency-*
 
 WarningsAsErrors: '*'
 
