@@ -8,15 +8,14 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "zephyr/tmtc.h"
+#include "zephyr/logging/log.h"
+
 #include "danp/danp.h"
 #include "danp/danp_buffer.h"
 #include "danp/danp_types.h"
 #include "osal/osal_thread.h"
 #include "osal/osal_time.h"
-#include "zephyr/tmtc.h"
-
-#include "zephyr/logging/log.h"
-
 #include "cfl/cfl.h"
 #include "cfl/services/cfl_service_danp.h"
 
@@ -39,6 +38,242 @@ typedef struct cfl_service_danp_ctx_s
 
 static cfl_service_danp_ctx_t context;
 
+/* Private Helper Functions */
+
+static danp_packet_t *create_nack_packet(uint16_t msg_id, uint16_t msg_seq, int32_t error_code)
+{
+    danp_packet_t *pkt = danp_buffer_get();
+    if (pkt == NULL)
+    {
+        LOG_ERR("Failed to allocate NACK packet");
+        return NULL;
+    }
+
+    cfl_message_t *msg = (cfl_message_t *)pkt->payload;
+    msg->sync = CFL_SYNC_WORD;
+    msg->version = CFL_VERSION;
+    msg->flags = CFL_F_NACK;
+    msg->id = msg_id;
+    msg->seq = msg_seq;
+    msg->length = sizeof(error_code);
+    memcpy(msg->data, &error_code, msg->length);
+    pkt->length = CFL_HEADER_SIZE + msg->length;
+
+    return pkt;
+}
+
+static danp_packet_t *create_ack_packet(uint16_t msg_id, uint16_t msg_seq)
+{
+    danp_packet_t *pkt = danp_buffer_get();
+    if (pkt == NULL)
+    {
+        LOG_ERR("Failed to allocate ACK packet");
+        return NULL;
+    }
+
+    cfl_message_t *msg = (cfl_message_t *)pkt->payload;
+    msg->sync = CFL_SYNC_WORD;
+    msg->version = CFL_VERSION;
+    msg->flags = CFL_F_ACK;
+    msg->id = msg_id;
+    msg->seq = msg_seq;
+    msg->length = 0;
+    pkt->length = CFL_HEADER_SIZE + msg->length;
+
+    return pkt;
+}
+
+static danp_packet_t *
+create_reply_packet(uint16_t msg_id, uint16_t msg_seq, const uint8_t *data, uint16_t data_len)
+{
+    danp_packet_t *pkt = danp_buffer_get();
+    if (pkt == NULL)
+    {
+        LOG_ERR("Failed to allocate reply packet");
+        return NULL;
+    }
+
+    cfl_message_t *msg = (cfl_message_t *)pkt->payload;
+    msg->sync = CFL_SYNC_WORD;
+    msg->version = CFL_VERSION;
+    msg->flags = CFL_F_RPLY;
+    msg->id = msg_id;
+    msg->seq = msg_seq;
+    msg->length = data_len;
+    memcpy(msg->data, data, msg->length);
+    pkt->length = CFL_HEADER_SIZE + msg->length;
+
+    return pkt;
+}
+
+static void setup_tmtc_args(
+    struct tmtc_args *rqst,
+    struct tmtc_args *rply,
+    cfl_message_t *rqst_msg,
+    uint16_t rqst_pkt_len)
+{
+    rqst->hdr_len = CFL_HEADER_SIZE;
+    rqst->data = rqst_msg;
+    rqst->len = rqst_pkt_len;
+    rqst->incomplete = false;
+
+    rply->hdr_len = CFL_HEADER_SIZE;
+    rply->data = NULL;
+    rply->len = 0;
+    rply->incomplete = false;
+}
+
+static int32_t handle_request_message(
+    danp_packet_t *rqst_pkt,
+    cfl_message_t *rqst_msg,
+    danp_packet_t **rply_pkt,
+    danp_packet_t **status_pkt)
+{
+    int32_t ret = 0;
+    const struct tmtc_cmd_handler *handler = NULL;
+    struct tmtc_args rqst = {0};
+    struct tmtc_args rply = {0};
+
+    LOG_DBG("Handling request message");
+
+    /* Find handler for this request ID */
+    handler = tmtc_get_cmd_handler(rqst_msg->id);
+    if (NULL == handler)
+    {
+        ret = -EINVAL;
+        LOG_ERR("No handler found for request ID: %d", rqst_msg->id);
+        /* No handler - send NACK */
+        *status_pkt = create_nack_packet(rqst_msg->id, rqst_msg->seq, ret);
+        if (*status_pkt == NULL)
+        {
+            ret = -ENOMEM;
+        }
+        return ret;
+    }
+
+    LOG_DBG("Executing handler for request ID: %d", rqst_msg->id);
+    setup_tmtc_args(&rqst, &rply, rqst_msg, rqst_pkt->length);
+
+    ret = tmtc_run_handler(handler, &rqst, &rply);
+    if (ret < 0)
+    {
+        LOG_ERR("Handler execution failed with error: %d", ret);
+        *status_pkt = create_nack_packet(rqst_msg->id, rqst_msg->seq, ret);
+        if (*status_pkt == NULL)
+        {
+            ret = -ENOMEM;
+        }
+        return ret;
+    }
+
+    if (NULL == rply.data)
+    {
+        *status_pkt = create_ack_packet(rqst_msg->id, rqst_msg->seq);
+        if (*status_pkt == NULL)
+        {
+            ret = -ENOMEM;
+        }
+    }
+    else
+    {
+        *rply_pkt = create_reply_packet(rqst_msg->id, rqst_msg->seq, rply.data, rply.len);
+        if (*rply_pkt == NULL)
+        {
+            ret = -ENOMEM;
+        }
+    }
+
+    return ret;
+}
+
+static int32_t handle_push_message(danp_packet_t *rqst_pkt, cfl_message_t *rqst_msg)
+{
+    int32_t ret = 0;
+    const struct tmtc_cmd_handler *handler = NULL;
+    struct tmtc_args rqst = {0};
+    struct tmtc_args rply = {0};
+
+    LOG_DBG("Handling push message");
+
+    /* Find handler for this push ID */
+    handler = tmtc_get_cmd_handler(rqst_msg->id);
+    if (NULL == handler)
+    {
+        LOG_ERR("No handler found for push ID: %d", rqst_msg->id);
+        /* No handler - ignore push */
+        return ret;
+    }
+
+    LOG_DBG("Executing handler for push ID: %d", rqst_msg->id);
+    setup_tmtc_args(&rqst, &rply, rqst_msg, rqst_pkt->length);
+
+    ret = tmtc_run_handler(handler, &rqst, &rply);
+
+    /* Push messages do not expect a reply */
+    if (NULL != rply.data)
+    {
+        LOG_WRN("Handler returned unexpected reply data for push message");
+    }
+
+    return ret;
+}
+
+static int32_t send_cfl_message(
+    uint16_t dst_node,
+    uint16_t dst_port,
+    uint16_t id,
+    uint8_t flags,
+    const uint8_t *payload,
+    uint16_t payload_len)
+{
+    int32_t ret = 0;
+    danp_packet_t *pkt = NULL;
+    cfl_message_t *msg = NULL;
+    int32_t sent_len = 0;
+
+    if (!context.initialized)
+    {
+        LOG_ERR("Service not initialized");
+        return -EAGAIN;
+    }
+
+    if (payload_len > 0 && payload == NULL)
+    {
+        LOG_ERR("Payload is NULL but length is non-zero");
+        return -EINVAL;
+    }
+
+    pkt = danp_buffer_get();
+    if (pkt == NULL)
+    {
+        LOG_ERR("Failed to allocate packet buffer");
+        return -ENOMEM;
+    }
+
+    msg = (cfl_message_t *)pkt->payload;
+    msg->sync = CFL_SYNC_WORD;
+    msg->version = CFL_VERSION;
+    msg->flags = flags;
+    msg->id = id;
+    msg->seq = 0; /* Sequence number tracking not implemented */
+    msg->length = payload_len;
+    if (msg->length > 0)
+    {
+        memcpy(msg->data, payload, msg->length);
+    }
+    pkt->length = CFL_HEADER_SIZE + msg->length;
+
+    sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
+    if (sent_len < 0)
+    {
+        LOG_ERR("Failed to send packet");
+        return -EIO;
+    }
+
+    LOG_DBG("Sent message to node %d port %d, id %d", dst_node, dst_port, id);
+    return ret;
+}
+
 /* Public Functions */
 
 static int32_t cfl_process_message(
@@ -47,178 +282,38 @@ static int32_t cfl_process_message(
     danp_packet_t **status_pkt)
 {
     int32_t ret = 0;
-    cfl_message_t *rqst_msg = (cfl_message_t *)rqst_pkt->payload;
-    cfl_message_t *rply_msg = NULL;
-    cfl_message_t *status_msg = NULL;
-    const struct tmtc_cmd_handler *handler = NULL;
-    struct tmtc_args rqst = {0};
-    struct tmtc_args rply = {0};
+    cfl_message_t *rqst_msg = NULL;
 
-    for (;;)
+    LOG_DBG("Processing message");
+
+    if (rqst_pkt == NULL || rqst_pkt->length < CFL_HEADER_SIZE)
     {
-        LOG_DBG("Processing message");
+        LOG_ERR("Request packet is NULL or too short");
+        return -EINVAL;
+    }
 
-        if (rqst_pkt == NULL || rqst_pkt->length < CFL_HEADER_SIZE)
-        {
-            LOG_ERR("Request packet is NULL or too short");
-            ret = -EINVAL;
-            break;
-        }
+    rqst_msg = (cfl_message_t *)rqst_pkt->payload;
 
-        /* Validate complete message including CRC */
-        if (rqst_pkt->length != (CFL_HEADER_SIZE + rqst_msg->length))
-        {
-            LOG_ERR("Incomplete message received");
-            ret = -EINVAL;
-            break;
-        }
+    /* Validate complete message including CRC */
+    if (rqst_pkt->length != (CFL_HEADER_SIZE + rqst_msg->length))
+    {
+        LOG_ERR("Incomplete message received");
+        return -EINVAL;
+    }
 
-        /* Handle based on message type */
-        if (rqst_msg->flags & CFL_F_RQST)
-        {
-            LOG_DBG("Handling request message");
-            /* Find handler for this request ID */
-            handler = tmtc_get_cmd_handler(rqst_msg->id);
-            if (NULL == handler)
-            {
-                ret = -EINVAL;
-                LOG_ERR("No handler found for request ID: %d", rqst_msg->id);
-                /* No handler - send NACK */
-                *status_pkt = danp_buffer_get();
-                if (*status_pkt == NULL)
-                {
-                    LOG_ERR("Failed to allocate reply packet");
-                    ret = -ENOMEM;
-                    break;
-                }
-                status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                status_msg->sync = CFL_SYNC_WORD;
-                status_msg->version = CFL_VERSION;
-                status_msg->flags = CFL_F_NACK;
-                status_msg->id = rqst_msg->id;
-                status_msg->seq = rqst_msg->seq;
-                status_msg->length = sizeof(ret);
-                memcpy(status_msg->data, &ret, status_msg->length);
-                (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
-                break;
-            }
-
-            LOG_DBG("Executing handler for request ID: %d", rqst_msg->id);
-            rqst.hdr_len = CFL_HEADER_SIZE;
-            rqst.data = rqst_msg;
-            rqst.len = rqst_pkt->length;
-            rqst.incomplete = false;
-
-            rply.hdr_len = CFL_HEADER_SIZE;
-            rply.data = NULL;
-            rply.len = 0;
-            rply.incomplete = false;
-
-            ret = tmtc_run_handler(handler, &rqst, &rply);
-            if (ret < 0)
-            {
-                LOG_ERR("Handler execution failed with error: %d", ret);
-                *status_pkt = danp_buffer_get();
-                if (*status_pkt == NULL)
-                {
-                    LOG_ERR("Failed to allocate status packet");
-                    ret = -ENOMEM;
-                    break;
-                }
-
-                status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                status_msg->sync = CFL_SYNC_WORD;
-                status_msg->version = CFL_VERSION;
-                status_msg->flags = CFL_F_NACK;
-                status_msg->id = rqst_msg->id;
-                status_msg->seq = rqst_msg->seq;
-                status_msg->length = sizeof(ret);
-                memcpy(status_msg->data, &ret, status_msg->length);
-                (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
-                break;
-            }
-
-            if (NULL == rply.data)
-            {
-                *status_pkt = danp_buffer_get();
-                if (*status_pkt == NULL)
-                {
-                    LOG_ERR("Failed to allocate status packet");
-                    ret = -ENOMEM;
-                    break;
-                }
-
-                status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                status_msg->sync = CFL_SYNC_WORD;
-                status_msg->version = CFL_VERSION;
-                status_msg->flags = CFL_F_ACK;
-                status_msg->id = rqst_msg->id;
-                status_msg->seq = rqst_msg->seq;
-                status_msg->length = 0;
-                (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
-                break;
-            }
-            else
-            {
-                *rply_pkt = danp_buffer_get();
-                if (*rply_pkt == NULL)
-                {
-                    LOG_ERR("Failed to allocate reply packet");
-                    ret = -ENOMEM;
-                    break;
-                }
-
-                rply_msg = (cfl_message_t *)(*rply_pkt)->payload;
-                rply_msg->sync = CFL_SYNC_WORD;
-                rply_msg->version = CFL_VERSION;
-                rply_msg->flags = CFL_F_RPLY;
-                rply_msg->id = rqst_msg->id;
-                rply_msg->seq = rqst_msg->seq;
-                rply_msg->length = rply.len;
-                memcpy(rply_msg->data, rply.data, rply_msg->length);
-                (*rply_pkt)->length = CFL_HEADER_SIZE + rply_msg->length;
-
-                break;
-            }
-        }
-        else if (rqst_msg->flags & CFL_F_PUSH)
-        {
-            LOG_DBG("Handling push message");
-            /* Find handler for this push ID */
-            handler = tmtc_get_cmd_handler(rqst_msg->id);
-            if (NULL == handler)
-            {
-                LOG_ERR("No handler found for push ID: %d", rqst_msg->id);
-                /* No handler - ignore push */
-                break;
-            }
-
-            LOG_DBG("Executing handler for push ID: %d", rqst_msg->id);
-            rqst.hdr_len = CFL_HEADER_SIZE;
-            rqst.data = rqst_msg;
-            rqst.len = rqst_pkt->length;
-            rqst.incomplete = false;
-
-            rply.hdr_len = CFL_HEADER_SIZE;
-            rply.data = NULL;
-            rply.len = 0;
-            rply.incomplete = false;
-
-            ret = tmtc_run_handler(handler, &rqst, &rply);
-
-            /* Push messages do not expect a reply */
-            if (NULL != rply.data)
-            {
-                LOG_WRN("Handler returned unexpected reply data for push message");
-            }
-        }
-        else
-        {
-            LOG_ERR("Unknown message flag");
-            break;
-        }
-
-        break;
+    /* Handle based on message type */
+    if (rqst_msg->flags & CFL_F_RQST)
+    {
+        ret = handle_request_message(rqst_pkt, rqst_msg, rply_pkt, status_pkt);
+    }
+    else if (rqst_msg->flags & CFL_F_PUSH)
+    {
+        ret = handle_push_message(rqst_pkt, rqst_msg);
+    }
+    else
+    {
+        LOG_ERR("Unknown message flag");
+        ret = -EINVAL;
     }
 
     LOG_DBG("Message processing completed with result: %d", ret);
@@ -395,63 +490,8 @@ int32_t cfl_service_danp_send_request(
     uint16_t payload_len,
     uint16_t *seq_out)
 {
-    int32_t ret = 0;
-    danp_packet_t *pkt = NULL;
-    cfl_message_t *msg = NULL;
-    int32_t sent_len = 0;
-
     (void)seq_out; /* Sequence number tracking not implemented */
-
-    for (;;)
-    {
-        if (!context.initialized)
-        {
-            LOG_ERR("Service not initialized");
-            ret = -EAGAIN;
-            break;
-        }
-
-        if (payload_len > 0 && payload == NULL)
-        {
-            LOG_ERR("Payload is NULL but length is non-zero");
-            ret = -EINVAL;
-            break;
-        }
-
-        pkt = danp_buffer_get();
-        if (pkt == NULL)
-        {
-            LOG_ERR("Failed to allocate packet buffer");
-            ret = -ENOMEM;
-            break;
-        }
-
-        msg = (cfl_message_t *)pkt->payload;
-        msg->sync = CFL_SYNC_WORD;
-        msg->version = CFL_VERSION;
-        msg->flags = CFL_F_RQST;
-        msg->id = id;
-        msg->seq = 0; /* Sequence number tracking not implemented */
-        msg->length = payload_len;
-        if (msg->length > 0)
-        {
-            memcpy(msg->data, payload, msg->length);
-        }
-        pkt->length = CFL_HEADER_SIZE + msg->length;
-
-        sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
-        if (sent_len < 0)
-        {
-            LOG_ERR("Failed to send request packet");
-            ret = -EIO;
-            break;
-        }
-
-        LOG_DBG("Sent request to node %d port %d, id %d", dst_node, dst_port, id);
-        break;
-    }
-
-    return ret;
+    return send_cfl_message(dst_node, dst_port, id, CFL_F_RQST, payload, payload_len);
 }
 
 int32_t cfl_service_danp_send_push(
@@ -461,59 +501,5 @@ int32_t cfl_service_danp_send_push(
     const uint8_t *payload,
     uint16_t payload_len)
 {
-    int32_t ret = 0;
-    danp_packet_t *pkt = NULL;
-    cfl_message_t *msg = NULL;
-    int32_t sent_len = 0;
-
-    for (;;)
-    {
-        if (!context.initialized)
-        {
-            LOG_ERR("Service not initialized");
-            ret = -EAGAIN;
-            break;
-        }
-
-        if (payload_len > 0 && payload == NULL)
-        {
-            LOG_ERR("Payload is NULL but length is non-zero");
-            ret = -EINVAL;
-            break;
-        }
-
-        pkt = danp_buffer_get();
-        if (pkt == NULL)
-        {
-            LOG_ERR("Failed to allocate packet buffer");
-            ret = -ENOMEM;
-            break;
-        }
-
-        msg = (cfl_message_t *)pkt->payload;
-        msg->sync = CFL_SYNC_WORD;
-        msg->version = CFL_VERSION;
-        msg->flags = CFL_F_PUSH;
-        msg->id = id;
-        msg->seq = 0; /* Sequence number not used for push */
-        msg->length = payload_len;
-        if (msg->length > 0)
-        {
-            memcpy(msg->data, payload, msg->length);
-        }
-        pkt->length = CFL_HEADER_SIZE + msg->length;
-
-        sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
-        if (sent_len < 0)
-        {
-            LOG_ERR("Failed to send push packet");
-            ret = -EIO;
-            break;
-        }
-
-        LOG_DBG("Sent push to node %d port %d, id %d", dst_node, dst_port, id);
-        break;
-    }
-
-    return ret;
+    return send_cfl_message(dst_node, dst_port, id, CFL_F_PUSH, payload, payload_len);
 }

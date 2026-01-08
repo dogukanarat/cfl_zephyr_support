@@ -61,8 +61,10 @@ add_library(CflZephyrSupport::CflZephyrSupport ALIAS CflZephyrSupport)
 target_sources(CflZephyrSupport
     PRIVATE
         # Core implementation files
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/cfl_zephyr_support.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/cfl_zephyr_support_int.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/cfl_log.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/cfl_shell.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/cfl_utilities.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/services/cfl_service_danp.c
 )
 
 # ==============================================================================
@@ -99,9 +101,9 @@ target_compile_options(CflZephyrSupport
         >
 )
 
-target_compile_definitions(ScaffoldProject
+target_compile_definitions(CflZephyrSupport
     PRIVATE
-        SCAFFOLD_PROJECT_EXPORTS
+        CFL_ZEPHYR_SUPPORT_EXPORTS
 )
 
 # ==============================================================================

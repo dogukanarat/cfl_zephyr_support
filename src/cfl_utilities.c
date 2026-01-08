@@ -120,11 +120,11 @@ int32_t tmtc_transaction(
         }
 
         rqst_msg = (cfl_message_t *)rqst_pkt->payload;
-        rqst_msg->version = CFL_VERSION;
-        rqst_msg->seq = 0;
         rqst_msg->sync = CFL_SYNC_WORD;
-        rqst_msg->id = tmtc_id;
+        rqst_msg->version = CFL_VERSION;
         rqst_msg->flags = CFL_F_RQST;
+        rqst_msg->id = tmtc_id;
+        rqst_msg->seq = 0;
         rqst_msg->length = request_len;
         memcpy(rqst_msg->data, request, rqst_msg->length);
         rqst_pkt->length = CFL_HEADER_SIZE + rqst_msg->length;
