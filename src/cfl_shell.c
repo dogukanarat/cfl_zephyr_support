@@ -10,7 +10,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-#include "danp/danp.h"
+#include "cfl/cfl_utilities.h"
+#include "danp/danp_defs.h"
 
 /* Imports */
 

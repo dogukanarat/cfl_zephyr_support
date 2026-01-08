@@ -8,8 +8,7 @@
 /* Includes */
 
 #include <stdarg.h>
-
-#include "danp/danp.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,14 +25,6 @@ extern "C" {
 
 /* External Declarations */
 
-extern int32_t danp_transaction(
-    uint16_t dest_id,
-    uint16_t dest_port,
-    uint8_t *data,
-    size_t data_len,
-    uint8_t *resp_buffer,
-    size_t resp_buffer_size,
-    uint32_t timeout);
 
 extern int32_t tmtc_transaction(
     uint16_t dest_id,

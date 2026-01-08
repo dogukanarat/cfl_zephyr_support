@@ -57,13 +57,6 @@ extern int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config);
 extern int32_t cfl_service_danp_deinit(void);
 
 /**
- * @brief Unregister a handler for a specific message ID
- * @param id Message ID to unregister
- * @return 0 on success, negative error code on failure
- */
-extern int32_t cfl_service_danp_unregister_handler(uint16_t id);
-
-/**
  * @brief Send a request message
  * @param dst_node    Destination node address
  * @param dst_port    Destination port

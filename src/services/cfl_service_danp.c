@@ -92,11 +92,11 @@ static int32_t cfl_process_message(
                     break;
                 }
                 status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                status_msg->version = CFL_VERSION;
-                status_msg->seq = rqst_msg->seq;
                 status_msg->sync = CFL_SYNC_WORD;
-                status_msg->id = rqst_msg->id;
+                status_msg->version = CFL_VERSION;
                 status_msg->flags = CFL_F_NACK;
+                status_msg->id = rqst_msg->id;
+                status_msg->seq = rqst_msg->seq;
                 status_msg->length = sizeof(ret);
                 memcpy(status_msg->data, &ret, status_msg->length);
                 (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
@@ -127,11 +127,11 @@ static int32_t cfl_process_message(
                 }
 
                 status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                status_msg->version = CFL_VERSION;
-                status_msg->seq = rqst_msg->seq;
                 status_msg->sync = CFL_SYNC_WORD;
-                status_msg->id = rqst_msg->id;
+                status_msg->version = CFL_VERSION;
                 status_msg->flags = CFL_F_NACK;
+                status_msg->id = rqst_msg->id;
+                status_msg->seq = rqst_msg->seq;
                 status_msg->length = sizeof(ret);
                 memcpy(status_msg->data, &ret, status_msg->length);
                 (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
@@ -149,24 +149,17 @@ static int32_t cfl_process_message(
                 }
 
                 status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                status_msg->version = CFL_VERSION;
-                status_msg->seq = rqst_msg->seq;
                 status_msg->sync = CFL_SYNC_WORD;
-                status_msg->id = rqst_msg->id;
+                status_msg->version = CFL_VERSION;
                 status_msg->flags = CFL_F_ACK;
+                status_msg->id = rqst_msg->id;
+                status_msg->seq = rqst_msg->seq;
                 status_msg->length = 0;
                 (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
                 break;
             }
             else
             {
-                if (rply.len > CFL_MAX_PAYLOAD_SIZE)
-                {
-                    LOG_ERR("Reply data exceeds max payload size");
-                    ret = CFL_ERR_NO_RESOURCE;
-                    break;
-                }
-
                 *rply_pkt = danp_buffer_get();
                 if (*rply_pkt == NULL)
                 {
@@ -176,11 +169,11 @@ static int32_t cfl_process_message(
                 }
 
                 rply_msg = (cfl_message_t *)(*rply_pkt)->payload;
-                rply_msg->version = CFL_VERSION;
-                rply_msg->seq = rqst_msg->seq;
                 rply_msg->sync = CFL_SYNC_WORD;
-                rply_msg->id = rqst_msg->id;
+                rply_msg->version = CFL_VERSION;
                 rply_msg->flags = CFL_F_RPLY;
+                rply_msg->id = rqst_msg->id;
+                rply_msg->seq = rqst_msg->seq;
                 rply_msg->length = rply.len;
                 memcpy(rply_msg->data, rply.data, rply_msg->length);
                 (*rply_pkt)->length = CFL_HEADER_SIZE + rply_msg->length;
@@ -394,14 +387,6 @@ int32_t cfl_service_danp_deinit(void)
     return ret;
 }
 
-int32_t cfl_service_danp_unregister_handler(uint16_t id)
-{
-    (void)id;
-    /* Handler registration is managed by the tmtc subsystem */
-    LOG_WRN("Handler unregistration not supported through this interface");
-    return -ENOTSUP;
-}
-
 int32_t cfl_service_danp_send_request(
     uint16_t dst_node,
     uint16_t dst_port,
@@ -410,7 +395,7 @@ int32_t cfl_service_danp_send_request(
     uint16_t payload_len,
     uint16_t *seq_out)
 {
-    int32_t ret = CFL_OK;
+    int32_t ret = 0;
     danp_packet_t *pkt = NULL;
     cfl_message_t *msg = NULL;
     int32_t sent_len = 0;
@@ -422,14 +407,14 @@ int32_t cfl_service_danp_send_request(
         if (!context.initialized)
         {
             LOG_ERR("Service not initialized");
-            ret = CFL_ERR_NOT_INIT;
+            ret = -EAGAIN;
             break;
         }
 
         if (payload_len > 0 && payload == NULL)
         {
             LOG_ERR("Payload is NULL but length is non-zero");
-            ret = CFL_ERR_NULL;
+            ret = -EINVAL;
             break;
         }
 
@@ -437,26 +422,28 @@ int32_t cfl_service_danp_send_request(
         if (pkt == NULL)
         {
             LOG_ERR("Failed to allocate packet buffer");
-            ret = CFL_ERR_NO_RESOURCE;
+            ret = -ENOMEM;
             break;
         }
 
         msg = (cfl_message_t *)pkt->payload;
-        cfl_message_init(msg, id, CFL_F_RQST);
-
-        if (payload_len > 0)
+        msg->sync = CFL_SYNC_WORD;
+        msg->version = CFL_VERSION;
+        msg->flags = CFL_F_RQST;
+        msg->id = id;
+        msg->seq = 0; /* Sequence number tracking not implemented */
+        msg->length = payload_len;
+        if (msg->length > 0)
         {
-            memcpy(msg->data, payload, payload_len);
+            memcpy(msg->data, payload, msg->length);
         }
-        cfl_message_set_length(msg, payload_len);
-        cfl_message_compute_crc(msg);
-        pkt->length = CFL_HEADER_SIZE + payload_len;
+        pkt->length = CFL_HEADER_SIZE + msg->length;
 
         sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
         if (sent_len < 0)
         {
             LOG_ERR("Failed to send request packet");
-            ret = CFL_ERR_TRANSPORT;
+            ret = -EIO;
             break;
         }
 
@@ -474,7 +461,7 @@ int32_t cfl_service_danp_send_push(
     const uint8_t *payload,
     uint16_t payload_len)
 {
-    int32_t ret = CFL_OK;
+    int32_t ret = 0;
     danp_packet_t *pkt = NULL;
     cfl_message_t *msg = NULL;
     int32_t sent_len = 0;
@@ -484,14 +471,14 @@ int32_t cfl_service_danp_send_push(
         if (!context.initialized)
         {
             LOG_ERR("Service not initialized");
-            ret = CFL_ERR_NOT_INIT;
+            ret = -EAGAIN;
             break;
         }
 
         if (payload_len > 0 && payload == NULL)
         {
             LOG_ERR("Payload is NULL but length is non-zero");
-            ret = CFL_ERR_NULL;
+            ret = -EINVAL;
             break;
         }
 
@@ -499,26 +486,28 @@ int32_t cfl_service_danp_send_push(
         if (pkt == NULL)
         {
             LOG_ERR("Failed to allocate packet buffer");
-            ret = CFL_ERR_NO_RESOURCE;
+            ret = -ENOMEM;
             break;
         }
 
         msg = (cfl_message_t *)pkt->payload;
-        cfl_message_init(msg, id, CFL_F_PUSH);
-
-        if (payload_len > 0)
+        msg->sync = CFL_SYNC_WORD;
+        msg->version = CFL_VERSION;
+        msg->flags = CFL_F_PUSH;
+        msg->id = id;
+        msg->seq = 0; /* Sequence number not used for push */
+        msg->length = payload_len;
+        if (msg->length > 0)
         {
-            memcpy(msg->data, payload, payload_len);
+            memcpy(msg->data, payload, msg->length);
         }
-        cfl_message_set_length(msg, payload_len);
-        cfl_message_compute_crc(msg);
-        pkt->length = CFL_HEADER_SIZE + payload_len;
+        pkt->length = CFL_HEADER_SIZE + msg->length;
 
         sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
         if (sent_len < 0)
         {
             LOG_ERR("Failed to send push packet");
-            ret = CFL_ERR_TRANSPORT;
+            ret = -EIO;
             break;
         }
 
