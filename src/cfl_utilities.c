@@ -102,7 +102,6 @@ int32_t tmtc_transaction(
     uint32_t timeout)
 {
     int32_t ret = 0;
-    cfl_status_t cfl_ret = CFL_OK;
     danp_packet_t *rqst_pkt = NULL;
     danp_packet_t *received_pkt = NULL;
     cfl_message_t *rqst_msg = NULL;
@@ -120,12 +119,14 @@ int32_t tmtc_transaction(
         }
 
         rqst_msg = (cfl_message_t *)rqst_pkt->payload;
-
-        cfl_message_init(rqst_msg, tmtc_id, CFL_F_RQST);
-        memcpy(rqst_msg->data, request, request_len);
-        cfl_message_set_length(rqst_msg, request_len);
-        cfl_message_compute_crc(rqst_msg);
-        rqst_pkt->length = CFL_HEADER_SIZE + request_len;
+        rqst_msg->version = CFL_VERSION;
+        rqst_msg->seq = 0;
+        rqst_msg->sync = CFL_SYNC_WORD;
+        rqst_msg->id = tmtc_id;
+        rqst_msg->flags = CFL_F_RQST;
+        rqst_msg->length = request_len;
+        memcpy(rqst_msg->data, request, rqst_msg->length);
+        rqst_pkt->length = CFL_HEADER_SIZE + rqst_msg->length;
 
         ret = tmtc_transaction_packet(dest_id, CONFIG_CFL_SUPPORT_DANP_SERVICE_PORT, rqst_pkt, &received_pkt, timeout);
         if (ret < 0)
@@ -136,25 +137,24 @@ int32_t tmtc_transaction(
         received_msg = (cfl_message_t *)received_pkt->payload;
         received_len = received_pkt->length;
 
-        cfl_ret = cfl_message_validate(received_msg, received_len);
-        if (CFL_OK != cfl_ret)
+        if (received_msg->length + CFL_HEADER_SIZE != received_len)
         {
-            LOG_ERR("Status message validation failed with error: %d", cfl_ret);
-            ret = -2;
+            LOG_ERR("Received packet length mismatch");
+            ret = -2; // Length mismatch
             break;
         }
 
-        if (cfl_message_has_flag(received_msg, CFL_F_NACK))
+        if (received_msg->flags & CFL_F_NACK)
         {
             LOG_ERR("Received error status for request ID: %d", received_msg->id);
             status_msg = received_msg;
         }
-        else if (cfl_message_has_flag(received_msg, CFL_F_ACK))
+        else if (received_msg->flags & CFL_F_ACK)
         {
             LOG_INF("Received success status for request ID: %d", received_msg->id);
             status_msg = received_msg;
         }
-        else if (cfl_message_has_flag(received_msg, CFL_F_RPLY))
+        else if (received_msg->flags & CFL_F_RPLY)
         {
             LOG_INF("Received reply for request ID: %d", received_msg->id);
             rply_msg = received_msg;

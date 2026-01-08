@@ -49,8 +49,7 @@ static int32_t cfl_process_message(
     danp_packet_t **rply_pkt,
     danp_packet_t **status_pkt)
 {
-    int32_t ret = CFL_OK;
-    cfl_status_t err = CFL_OK;
+    int32_t ret = 0;
     cfl_message_t *rqst_msg = (cfl_message_t *)rqst_pkt->payload;
     cfl_message_t *rply_msg = NULL;
     cfl_message_t *status_msg = NULL;
@@ -65,21 +64,20 @@ static int32_t cfl_process_message(
         if (rqst_pkt == NULL || rqst_pkt->length < CFL_HEADER_SIZE)
         {
             LOG_ERR("Request packet is NULL or too short");
-            ret = CFL_ERR_NULL;
+            ret = -EINVAL;
             break;
         }
 
         /* Validate complete message including CRC */
-        err = cfl_message_validate(rqst_msg, rqst_pkt->length);
-        if (err != CFL_OK)
+        if (rqst_pkt->length != (CFL_HEADER_SIZE + rqst_msg->length))
         {
-            LOG_ERR("Message validation failed with error: %d", err);
-            ret = err;
+            LOG_ERR("Incomplete message received");
+            ret = -EINVAL;
             break;
         }
 
         /* Handle based on message type */
-        if (cfl_message_has_flag(rqst_msg, CFL_F_RQST))
+        if (rqst_msg->flags & CFL_F_RQST)
         {
             LOG_DBG("Handling request message");
             /* Find handler for this request ID */
@@ -93,15 +91,18 @@ static int32_t cfl_process_message(
                 if (*status_pkt == NULL)
                 {
                     LOG_ERR("Failed to allocate reply packet");
-                    ret = CFL_ERR_NO_RESOURCE;
+                    ret = -ENOMEM;
                     break;
                 }
                 status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                cfl_message_init(status_msg, rqst_msg->id, CFL_F_NACK);
-                memcpy(status_msg->data, &ret, sizeof(ret));
-                cfl_message_set_length(status_msg, sizeof(ret));
-                cfl_message_compute_crc(status_msg);
-                (*status_pkt)->length = CFL_HEADER_SIZE + sizeof(ret);
+                status_msg->version = CFL_VERSION;
+                status_msg->seq = rqst_msg->seq;
+                status_msg->sync = CFL_SYNC_WORD;
+                status_msg->id = rqst_msg->id;
+                status_msg->flags = CFL_F_NACK;
+                status_msg->length = sizeof(ret);
+                memcpy(status_msg->data, &ret, status_msg->length);
+                (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
                 break;
             }
 
@@ -124,16 +125,19 @@ static int32_t cfl_process_message(
                 if (*status_pkt == NULL)
                 {
                     LOG_ERR("Failed to allocate status packet");
-                    ret = CFL_ERR_NO_RESOURCE;
+                    ret = -ENOMEM;
                     break;
                 }
 
                 status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                cfl_message_init(status_msg, rqst_msg->id, CFL_F_NACK);
-                memcpy(status_msg->data, &ret, sizeof(ret));
+                status_msg->version = CFL_VERSION;
+                status_msg->seq = rqst_msg->seq;
+                status_msg->sync = CFL_SYNC_WORD;
+                status_msg->id = rqst_msg->id;
+                status_msg->flags = CFL_F_NACK;
                 status_msg->length = sizeof(ret);
-                cfl_message_compute_crc(status_msg);
-                (*status_pkt)->length = CFL_HEADER_SIZE + sizeof(ret);
+                memcpy(status_msg->data, &ret, status_msg->length);
+                (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
                 break;
             }
 
@@ -143,15 +147,18 @@ static int32_t cfl_process_message(
                 if (*status_pkt == NULL)
                 {
                     LOG_ERR("Failed to allocate status packet");
-                    ret = CFL_ERR_NO_RESOURCE;
+                    ret = -ENOMEM;
                     break;
                 }
 
                 status_msg = (cfl_message_t *)(*status_pkt)->payload;
-                cfl_message_init(status_msg, rqst_msg->id, CFL_F_ACK);
-                cfl_message_set_length(status_msg, 0);
-                cfl_message_compute_crc(status_msg);
-                (*status_pkt)->length = CFL_HEADER_SIZE;
+                status_msg->version = CFL_VERSION;
+                status_msg->seq = rqst_msg->seq;
+                status_msg->sync = CFL_SYNC_WORD;
+                status_msg->id = rqst_msg->id;
+                status_msg->flags = CFL_F_ACK;
+                status_msg->length = 0;
+                (*status_pkt)->length = CFL_HEADER_SIZE + status_msg->length;
                 break;
             }
             else
@@ -160,20 +167,24 @@ static int32_t cfl_process_message(
                 if (*rply_pkt == NULL)
                 {
                     LOG_ERR("Failed to allocate reply packet");
-                    ret = CFL_ERR_NO_RESOURCE;
+                    ret = -ENOMEM;
                     break;
                 }
 
                 rply_msg = (cfl_message_t *)(*rply_pkt)->payload;
-                cfl_message_init(rply_msg, rqst_msg->id, CFL_F_RPLY);
-                memcpy(rply_msg->data, rply.data, rply.len);
-                cfl_message_set_length(rply_msg, rply.len);
-                cfl_message_compute_crc(rply_msg);
-                (*rply_pkt)->length = CFL_HEADER_SIZE + rply.len;
+                rply_msg->version = CFL_VERSION;
+                rply_msg->seq = rqst_msg->seq;
+                rply_msg->sync = CFL_SYNC_WORD;
+                rply_msg->id = rqst_msg->id;
+                rply_msg->flags = CFL_F_RPLY;
+                rply_msg->length = rply.len;
+                memcpy(rply_msg->data, rply.data, rply_msg->length);
+                (*rply_pkt)->length = CFL_HEADER_SIZE + rply_msg->length;
+
                 break;
             }
         }
-        else if (cfl_message_has_flag(rqst_msg, CFL_F_PUSH))
+        else if (rqst_msg->flags & CFL_F_PUSH)
         {
             LOG_DBG("Handling push message");
             /* Find handler for this push ID */
@@ -268,7 +279,7 @@ static void cfl_danp_rx_task(void *arg)
 
 int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
 {
-    int32_t ret = CFL_OK;
+    int32_t ret = 0;
     bool is_socket_created = false;
     osal_thread_attr_t task_attr = {
         .name = "cfl_rx",
@@ -283,14 +294,14 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         if (config == NULL)
         {
             LOG_ERR("Configuration is NULL");
-            ret = CFL_ERR_NULL;
+            ret = -EINVAL;
             break;
         }
 
         if (contex.initialized)
         {
             LOG_ERR("Service already initialized");
-            ret = CFL_ERR_ALREADY_INIT;
+            ret = -EALREADY;
             break;
         }
 
@@ -302,7 +313,7 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         if (contex.socket == NULL)
         {
             LOG_ERR("Failed to create socket");
-            ret = CFL_ERR_TRANSPORT;
+            ret = -ENOMEM;
             break;
         }
         is_socket_created = true;
@@ -312,7 +323,8 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         if (ret < 0)
         {
             LOG_ERR("Failed to bind socket");
-            return CFL_ERR_TRANSPORT;
+            ret = -EADDRNOTAVAIL;
+            break;
         }
         contex.running = true;
 
@@ -321,7 +333,7 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         if (contex.rx_task_handle == NULL)
         {
             LOG_ERR("Failed to create RX task");
-            ret = CFL_ERR_NO_RESOURCE;
+            ret = -ENOMEM;
             break;
         }
 
@@ -329,7 +341,7 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         break;
     }
 
-    if (CFL_OK != ret)
+    if (0 != ret)
     {
         if (is_socket_created && contex.socket != NULL)
         {
@@ -348,7 +360,7 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
 
 int32_t cfl_service_danp_deinit(void)
 {
-    int32_t ret = CFL_OK;
+    int32_t ret = 0;
 
     for (;;)
     {
@@ -357,7 +369,7 @@ int32_t cfl_service_danp_deinit(void)
         if (!contex.initialized)
         {
             LOG_ERR("Service not initialized");
-            ret = CFL_ERR_NOT_INIT;
+            ret = -EINVAL;
             break;
         }
 
