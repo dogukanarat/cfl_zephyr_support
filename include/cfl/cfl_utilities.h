@@ -9,6 +9,8 @@
 
 #include <stdarg.h>
 #include <stdint.h>
+#include <stddef.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,10 +27,9 @@ extern "C" {
 
 /* External Declarations */
 
-
-extern int32_t tmtc_transaction(
+extern ssize_t cfl_transaction(
     uint16_t dest_id,
-    uint16_t tmtc_id,
+    uint16_t cmd_id,
     const uint8_t *request,
     uint16_t request_len,
     uint8_t *reply,

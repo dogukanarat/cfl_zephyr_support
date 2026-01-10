@@ -92,9 +92,9 @@ static int32_t tmtc_transaction_packet(
     return ret;
 }
 
-int32_t tmtc_transaction(
+int32_t cfl_transaction(
     uint16_t dest_id,
-    uint16_t tmtc_id,
+    uint16_t cmd_id,
     const uint8_t *request,
     uint16_t request_len,
     uint8_t *reply,
@@ -108,6 +108,7 @@ int32_t tmtc_transaction(
     cfl_message_t *status_msg = NULL;
     cfl_message_t *rply_msg = NULL;
     cfl_message_t *received_msg = NULL;
+    uint32_t received_status = 0;
     uint16_t received_len = 0;
     
     for (;;)
@@ -123,7 +124,7 @@ int32_t tmtc_transaction(
         rqst_msg->sync = CFL_SYNC_WORD;
         rqst_msg->version = CFL_VERSION;
         rqst_msg->flags = CFL_F_RQST;
-        rqst_msg->id = tmtc_id;
+        rqst_msg->cmd_id = cmd_id;
         rqst_msg->seq = 0;
         rqst_msg->length = request_len;
         memcpy(rqst_msg->data, request, rqst_msg->length);
@@ -147,21 +148,22 @@ int32_t tmtc_transaction(
 
         if (received_msg->flags & CFL_F_NACK)
         {
-            LOG_ERR("Received NACK for request ID: %d", received_msg->id);
             status_msg = received_msg;
+            memcpy(&received_status, &status_msg->data[0], sizeof(received_status));
+            LOG_ERR("Received NACK: [cmd_id]=%d [status]=%d", received_msg->cmd_id, received_status);
             ret = -5;
             break;
         }
         else if (received_msg->flags & CFL_F_ACK)
         {
-            LOG_INF("Received ACK for request ID: %d", received_msg->id);
+            LOG_INF("Received ACK: [cmd_id]=%d", received_msg->cmd_id);
             status_msg = received_msg;
             ret = 0;
             break;
         }
         else if (received_msg->flags & CFL_F_RPLY)
         {
-            LOG_INF("Received reply for request ID: %d", received_msg->id);
+            LOG_INF("Received reply: [cmd_id]=%d", received_msg->cmd_id);
             rply_msg = received_msg;
         }
         else

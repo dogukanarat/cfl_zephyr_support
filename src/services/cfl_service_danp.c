@@ -4,24 +4,34 @@
 
 /* Includes */
 
+#include <stddef.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <string.h>
 
-#include "zephyr/tmtc.h"
 #include "zephyr/logging/log.h"
+#include "zephyr/logging/log_instance.h"
+#include "zephyr/tmtc.h"
 
+#include "cfl/cfl.h"
+#include "cfl/services/cfl_service_danp.h"
 #include "danp/danp.h"
 #include "danp/danp_buffer.h"
 #include "danp/danp_types.h"
 #include "osal/osal_thread.h"
 #include "osal/osal_time.h"
-#include "cfl/cfl.h"
-#include "cfl/services/cfl_service_danp.h"
 
 /* Private Definitions */
 
-LOG_MODULE_REGISTER(cfl_service, CONFIG_CFL_LOG_LEVEL);
+LOG_MODULE_DECLARE(cfl);
+
+LOG_INSTANCE_REGISTER(cfl, service, CONFIG_CFL_LOG_LEVEL);
+
+#define CFL_SERVICE_LOG_VER(...) LOG_INST_DBG(LOG_INSTANCE_PTR(cfl, service), __VA_ARGS__)
+#define CFL_SERVICE_LOG_DBG(...) LOG_INST_DBG(LOG_INSTANCE_PTR(cfl, service), __VA_ARGS__)
+#define CFL_SERVICE_LOG_INF(...) LOG_INST_INF(LOG_INSTANCE_PTR(cfl, service), __VA_ARGS__)
+#define CFL_SERVICE_LOG_WRN(...) LOG_INST_WRN(LOG_INSTANCE_PTR(cfl, service), __VA_ARGS__)
+#define CFL_SERVICE_LOG_ERR(...) LOG_INST_ERR(LOG_INSTANCE_PTR(cfl, service), __VA_ARGS__)
 
 /* Private Types */
 
@@ -45,7 +55,7 @@ static danp_packet_t *create_nack_packet(uint16_t msg_id, uint16_t msg_seq, int3
     danp_packet_t *pkt = danp_buffer_get();
     if (pkt == NULL)
     {
-        LOG_ERR("Failed to allocate NACK packet");
+        CFL_SERVICE_LOG_ERR("Failed to allocate NACK packet");
         return NULL;
     }
 
@@ -53,7 +63,7 @@ static danp_packet_t *create_nack_packet(uint16_t msg_id, uint16_t msg_seq, int3
     msg->sync = CFL_SYNC_WORD;
     msg->version = CFL_VERSION;
     msg->flags = CFL_F_NACK;
-    msg->id = msg_id;
+    msg->cmd_id = msg_id;
     msg->seq = msg_seq;
     msg->length = sizeof(error_code);
     memcpy(msg->data, &error_code, msg->length);
@@ -67,7 +77,7 @@ static danp_packet_t *create_ack_packet(uint16_t msg_id, uint16_t msg_seq)
     danp_packet_t *pkt = danp_buffer_get();
     if (pkt == NULL)
     {
-        LOG_ERR("Failed to allocate ACK packet");
+        CFL_SERVICE_LOG_ERR("Failed to allocate ACK packet");
         return NULL;
     }
 
@@ -75,7 +85,7 @@ static danp_packet_t *create_ack_packet(uint16_t msg_id, uint16_t msg_seq)
     msg->sync = CFL_SYNC_WORD;
     msg->version = CFL_VERSION;
     msg->flags = CFL_F_ACK;
-    msg->id = msg_id;
+    msg->cmd_id = msg_id;
     msg->seq = msg_seq;
     msg->length = 0;
     pkt->length = CFL_HEADER_SIZE + msg->length;
@@ -83,13 +93,14 @@ static danp_packet_t *create_ack_packet(uint16_t msg_id, uint16_t msg_seq)
     return pkt;
 }
 
-static danp_packet_t *
-create_reply_packet(uint16_t msg_id, uint16_t msg_seq, const uint8_t *data, uint16_t data_len)
+static danp_packet_t *create_reply_packet(
+    uint16_t msg_id,
+    uint16_t msg_seq,
+    danp_packet_t *pkt)
 {
-    danp_packet_t *pkt = danp_buffer_get();
     if (pkt == NULL)
     {
-        LOG_ERR("Failed to allocate reply packet");
+        CFL_SERVICE_LOG_ERR("Failed to allocate reply packet");
         return NULL;
     }
 
@@ -97,13 +108,37 @@ create_reply_packet(uint16_t msg_id, uint16_t msg_seq, const uint8_t *data, uint
     msg->sync = CFL_SYNC_WORD;
     msg->version = CFL_VERSION;
     msg->flags = CFL_F_RPLY;
-    msg->id = msg_id;
+    msg->cmd_id = msg_id;
     msg->seq = msg_seq;
-    msg->length = data_len;
-    memcpy(msg->data, data, msg->length);
-    pkt->length = CFL_HEADER_SIZE + msg->length;
+    msg->length = pkt->length - CFL_HEADER_SIZE;
+}
 
-    return pkt;
+static uint8_t *custom_malloc(size_t size)
+{
+    uint8_t *buffer = NULL;
+    danp_packet_t *pkt = NULL;
+
+    for (;;)
+    {
+        if (size > DANP_MAX_PACKET_SIZE)
+        {
+            CFL_SERVICE_LOG_ERR("Requested size too large for custom malloc! Requested: %u, Max: %u", size, DANP_MAX_PACKET_SIZE);
+            return NULL;
+        }
+
+        pkt = danp_buffer_get();
+        if (NULL == pkt)
+        {
+            CFL_SERVICE_LOG_ERR("Failed to allocate packet for custom malloc");
+            return NULL;
+        }
+
+        buffer = pkt->payload;
+
+        break;
+    }
+
+    return buffer;
 }
 
 static void setup_tmtc_args(
@@ -113,14 +148,17 @@ static void setup_tmtc_args(
     uint16_t rqst_pkt_len)
 {
     rqst->hdr_len = CFL_HEADER_SIZE;
-    rqst->data = rqst_msg;
+    rqst->data = (uint8_t *)rqst_msg;
     rqst->len = rqst_pkt_len;
+    rqst->ops.malloc = NULL;
+
     rqst->incomplete = false;
 
     rply->hdr_len = CFL_HEADER_SIZE;
     rply->data = NULL;
     rply->len = 0;
     rply->incomplete = false;
+    rply->ops.malloc = custom_malloc;
 }
 
 static int32_t handle_request_message(
@@ -134,16 +172,16 @@ static int32_t handle_request_message(
     struct tmtc_args rqst = {0};
     struct tmtc_args rply = {0};
 
-    LOG_DBG("Handling request message");
+    CFL_SERVICE_LOG_DBG("Handling request message");
 
     /* Find handler for this request ID */
-    handler = tmtc_get_cmd_handler(rqst_msg->id);
+    handler = tmtc_get_cmd_handler(rqst_msg->cmd_id);
     if (NULL == handler)
     {
         ret = -EINVAL;
-        LOG_ERR("No handler found for request ID: %d", rqst_msg->id);
+        CFL_SERVICE_LOG_ERR("No handler found for request ID: %d", rqst_msg->cmd_id);
         /* No handler - send NACK */
-        *status_pkt = create_nack_packet(rqst_msg->id, rqst_msg->seq, ret);
+        *status_pkt = create_nack_packet(rqst_msg->cmd_id, rqst_msg->seq, ret);
         if (*status_pkt == NULL)
         {
             ret = -ENOMEM;
@@ -151,14 +189,14 @@ static int32_t handle_request_message(
         return ret;
     }
 
-    LOG_DBG("Executing handler for request ID: %d", rqst_msg->id);
+    CFL_SERVICE_LOG_DBG("Executing handler for request ID: %d", rqst_msg->cmd_id);
     setup_tmtc_args(&rqst, &rply, rqst_msg, rqst_pkt->length);
 
     ret = tmtc_run_handler(handler, &rqst, &rply);
     if (ret < 0)
     {
-        LOG_ERR("Handler execution failed with error: %d", ret);
-        *status_pkt = create_nack_packet(rqst_msg->id, rqst_msg->seq, ret);
+        CFL_SERVICE_LOG_ERR("Handler execution failed with error: %d", ret);
+        *status_pkt = create_nack_packet(rqst_msg->cmd_id, rqst_msg->seq, ret);
         if (*status_pkt == NULL)
         {
             ret = -ENOMEM;
@@ -168,7 +206,7 @@ static int32_t handle_request_message(
 
     if (NULL == rply.data)
     {
-        *status_pkt = create_ack_packet(rqst_msg->id, rqst_msg->seq);
+        *status_pkt = create_ack_packet(rqst_msg->cmd_id, rqst_msg->seq);
         if (*status_pkt == NULL)
         {
             ret = -ENOMEM;
@@ -176,11 +214,11 @@ static int32_t handle_request_message(
     }
     else
     {
-        *rply_pkt = create_reply_packet(rqst_msg->id, rqst_msg->seq, rply.data, rply.len);
-        if (*rply_pkt == NULL)
-        {
-            ret = -ENOMEM;
-        }
+        danp_packet_t *local_rply_pkt = (danp_packet_t *)((uint8_t *)rply.data - offsetof(danp_packet_t, payload));
+        local_rply_pkt->length = rply.len;
+
+        create_reply_packet(rqst_msg->cmd_id, rqst_msg->seq, local_rply_pkt);
+        *rply_pkt = local_rply_pkt;
     }
 
     return ret;
@@ -193,18 +231,18 @@ static int32_t handle_push_message(danp_packet_t *rqst_pkt, cfl_message_t *rqst_
     struct tmtc_args rqst = {0};
     struct tmtc_args rply = {0};
 
-    LOG_DBG("Handling push message");
+    CFL_SERVICE_LOG_DBG("Handling push message");
 
     /* Find handler for this push ID */
-    handler = tmtc_get_cmd_handler(rqst_msg->id);
+    handler = tmtc_get_cmd_handler(rqst_msg->cmd_id);
     if (NULL == handler)
     {
-        LOG_ERR("No handler found for push ID: %d", rqst_msg->id);
+        CFL_SERVICE_LOG_ERR("No handler found for push ID: %d", rqst_msg->cmd_id);
         /* No handler - ignore push */
         return ret;
     }
 
-    LOG_DBG("Executing handler for push ID: %d", rqst_msg->id);
+    CFL_SERVICE_LOG_DBG("Executing handler for push ID: %d", rqst_msg->cmd_id);
     setup_tmtc_args(&rqst, &rply, rqst_msg, rqst_pkt->length);
 
     ret = tmtc_run_handler(handler, &rqst, &rply);
@@ -212,7 +250,7 @@ static int32_t handle_push_message(danp_packet_t *rqst_pkt, cfl_message_t *rqst_
     /* Push messages do not expect a reply */
     if (NULL != rply.data)
     {
-        LOG_WRN("Handler returned unexpected reply data for push message");
+        CFL_SERVICE_LOG_WRN("Handler returned unexpected reply data for push message");
     }
 
     return ret;
@@ -233,20 +271,20 @@ static int32_t send_cfl_message(
 
     if (!context.initialized)
     {
-        LOG_ERR("Service not initialized");
+        CFL_SERVICE_LOG_ERR("Service not initialized");
         return -EAGAIN;
     }
 
     if (payload_len > 0 && payload == NULL)
     {
-        LOG_ERR("Payload is NULL but length is non-zero");
+        CFL_SERVICE_LOG_ERR("Payload is NULL but length is non-zero");
         return -EINVAL;
     }
 
     pkt = danp_buffer_get();
     if (pkt == NULL)
     {
-        LOG_ERR("Failed to allocate packet buffer");
+        CFL_SERVICE_LOG_ERR("Failed to allocate packet buffer");
         return -ENOMEM;
     }
 
@@ -254,7 +292,7 @@ static int32_t send_cfl_message(
     msg->sync = CFL_SYNC_WORD;
     msg->version = CFL_VERSION;
     msg->flags = flags;
-    msg->id = id;
+    msg->cmd_id = id;
     msg->seq = 0; /* Sequence number tracking not implemented */
     msg->length = payload_len;
     if (msg->length > 0)
@@ -266,11 +304,11 @@ static int32_t send_cfl_message(
     sent_len = danp_send_packet_to(context.socket, pkt, dst_node, dst_port);
     if (sent_len < 0)
     {
-        LOG_ERR("Failed to send packet");
+        CFL_SERVICE_LOG_ERR("Failed to send packet");
         return -EIO;
     }
 
-    LOG_DBG("Sent message to node %d port %d, id %d", dst_node, dst_port, id);
+    CFL_SERVICE_LOG_DBG("Sent message to node %d port %d, id %d", dst_node, dst_port, id);
     return ret;
 }
 
@@ -284,11 +322,11 @@ static int32_t cfl_process_message(
     int32_t ret = 0;
     cfl_message_t *rqst_msg = NULL;
 
-    LOG_DBG("Processing message");
+    CFL_SERVICE_LOG_DBG("Processing message");
 
     if (rqst_pkt == NULL || rqst_pkt->length < CFL_HEADER_SIZE)
     {
-        LOG_ERR("Request packet is NULL or too short");
+        CFL_SERVICE_LOG_ERR("Request packet is NULL or too short");
         return -EINVAL;
     }
 
@@ -297,7 +335,7 @@ static int32_t cfl_process_message(
     /* Validate complete message including CRC */
     if (rqst_pkt->length != (CFL_HEADER_SIZE + rqst_msg->length))
     {
-        LOG_ERR("Incomplete message received");
+        CFL_SERVICE_LOG_ERR("Incomplete message received");
         return -EINVAL;
     }
 
@@ -312,15 +350,15 @@ static int32_t cfl_process_message(
     }
     else
     {
-        LOG_ERR("Unknown message flag");
+        CFL_SERVICE_LOG_ERR("Unknown message flag");
         ret = -EINVAL;
     }
 
-    LOG_DBG("Message processing completed with result: %d", ret);
+    CFL_SERVICE_LOG_DBG("Message processing completed with result: %d", ret);
     return ret;
 }
 
-static void cfl_danp_rx_task(void *arg)
+static void cfl_service_danp_rx_task(void *arg)
 {
     cfl_service_danp_ctx_t *ctx = (cfl_service_danp_ctx_t *)arg;
     danp_packet_t *rqst_pkt = NULL;
@@ -329,13 +367,11 @@ static void cfl_danp_rx_task(void *arg)
     uint16_t src_node = 0;
     uint16_t src_port = 0;
 
-    LOG_INF("TMTC service initialized on port %d", ctx->local_port);
-
     while (ctx->running)
     {
         if (NULL != rqst_pkt)
         {
-            LOG_DBG("Freeing previous request packet");
+            CFL_SERVICE_LOG_DBG("Freeing previous request packet");
             danp_buffer_free(rqst_pkt);
             rqst_pkt = NULL;
         }
@@ -346,24 +382,24 @@ static void cfl_danp_rx_task(void *arg)
 
         if (NULL != rqst_pkt)
         {
-            LOG_DBG("Received packet from node: %d, port: %d", src_node, src_port);
+            CFL_SERVICE_LOG_DBG("Received packet from node: %d, port: %d", src_node, src_port);
             cfl_process_message(rqst_pkt, &rply_pkt, &status_pkt);
         }
 
         if (NULL != status_pkt)
         {
-            LOG_DBG("Sending status packet to node: %d, port: %d", src_node, src_port);
+            CFL_SERVICE_LOG_DBG("Sending status packet to node: %d, port: %d", src_node, src_port);
             danp_send_packet_to(ctx->socket, status_pkt, src_node, src_port);
         }
 
         if (NULL != rply_pkt)
         {
-            LOG_DBG("Sending reply packet to node: %d, port: %d", src_node, src_port);
+            CFL_SERVICE_LOG_DBG("Sending reply packet to node: %d, port: %d", src_node, src_port);
             danp_send_packet_to(ctx->socket, rply_pkt, src_node, src_port);
         }
     }
 
-    LOG_DBG("RX task exiting");
+    CFL_SERVICE_LOG_DBG("RX task exiting");
     osal_thread_delete(context.rx_task_handle);
 }
 
@@ -379,18 +415,16 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
 
     for (;;)
     {
-        LOG_DBG("Initializing CFL service over DANP");
-
         if (config == NULL)
         {
-            LOG_ERR("Configuration is NULL");
+            CFL_SERVICE_LOG_ERR("Configuration is NULL");
             ret = -EINVAL;
             break;
         }
 
         if (context.initialized)
         {
-            LOG_ERR("Service already initialized");
+            CFL_SERVICE_LOG_ERR("Service already initialized");
             ret = -EALREADY;
             break;
         }
@@ -398,34 +432,33 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         memset(&context, 0, sizeof(context));
         context.local_port = config->port_id;
 
-        LOG_DBG("Creating socket");
         context.socket = danp_socket(DANP_TYPE_DGRAM);
         if (context.socket == NULL)
         {
-            LOG_ERR("Failed to create socket");
+            CFL_SERVICE_LOG_ERR("Failed to create socket");
             ret = -ENOMEM;
             break;
         }
         is_socket_created = true;
 
-        LOG_DBG("Binding socket to port: %d", context.local_port);
         ret = danp_bind(context.socket, context.local_port);
         if (ret < 0)
         {
-            LOG_ERR("Failed to bind socket");
+            CFL_SERVICE_LOG_ERR("Failed to bind socket");
             ret = -EADDRNOTAVAIL;
             break;
         }
         context.running = true;
 
-        LOG_DBG("Creating RX task");
-        context.rx_task_handle = osal_thread_create(cfl_danp_rx_task, &context, &task_attr);
+        context.rx_task_handle = osal_thread_create(cfl_service_danp_rx_task, &context, &task_attr);
         if (context.rx_task_handle == NULL)
         {
-            LOG_ERR("Failed to create RX task");
+            CFL_SERVICE_LOG_ERR("Failed to create RX task");
             ret = -ENOMEM;
             break;
         }
+
+        CFL_SERVICE_LOG_INF("CFL service over DANP initialized on port %d", context.local_port);
 
         context.initialized = true;
         break;
@@ -435,7 +468,7 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
     {
         if (is_socket_created && context.socket != NULL)
         {
-            LOG_DBG("Closing socket due to initialization failure");
+            CFL_SERVICE_LOG_DBG("Closing socket due to initialization failure");
             danp_close(context.socket);
             context.socket = NULL;
         }
@@ -444,7 +477,6 @@ int32_t cfl_service_danp_init(const cfl_service_danp_config_t *config)
         context.running = false;
     }
 
-    LOG_DBG("Initialization completed with result: %d", ret);
     return ret;
 }
 
@@ -454,22 +486,22 @@ int32_t cfl_service_danp_deinit(void)
 
     for (;;)
     {
-        LOG_DBG("Deinitializing CFL service over DANP");
+        CFL_SERVICE_LOG_DBG("Deinitializing CFL service over DANP");
 
         if (!context.initialized)
         {
-            LOG_ERR("Service not initialized");
+            CFL_SERVICE_LOG_ERR("Service not initialized");
             ret = -EINVAL;
             break;
         }
 
-        LOG_DBG("Signaling RX task to stop");
+        CFL_SERVICE_LOG_DBG("Signaling RX task to stop");
         context.running = false;
         osal_delay_ms(CFL_DANP_RX_TIMEOUT_MS * 2);
 
         if (context.socket != NULL)
         {
-            LOG_DBG("Closing socket");
+            CFL_SERVICE_LOG_DBG("Closing socket");
             danp_close(context.socket);
             context.socket = NULL;
         }
@@ -478,7 +510,6 @@ int32_t cfl_service_danp_deinit(void)
         break;
     }
 
-    LOG_DBG("Deinitialization completed with result: %d", ret);
     return ret;
 }
 
